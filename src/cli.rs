@@ -7,8 +7,8 @@ use clap::Parser;
 #[command(name = "gitauthors")]
 pub struct Args {
     /// Number of simultaneous threads to clone with
-    #[arg(global = true, short = 'n', long, default_value = "10")]
-    pub workers: usize,
+    #[arg(short, long, default_value = "10")]
+    pub threads: usize,
 
     /// Path to a file URLs [default: stdin]
     #[arg(short, long)]

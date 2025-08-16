@@ -1,7 +1,8 @@
 use futures::TryStreamExt;
 use regex::Regex;
-use std::{fmt::Display, path::PathBuf, process::Command, sync::LazyLock};
+use std::{fmt::Display, path::PathBuf, process::Stdio, sync::LazyLock};
 use tempfile::tempdir;
+use tokio::process::Command;
 
 pub mod cli;
 
@@ -90,20 +91,26 @@ impl Display for RepoSource {
     }
 }
 
-pub fn clone_repo(url: &str) -> Result<PathBuf, Err> {
+pub async fn clone_repo(url: &str) -> Result<PathBuf, Err> {
     let dir = tempdir()?.keep();
 
+    // eprintln!("Running command for {url}");
     if !Command::new("git")
         .arg("clone")
         .arg("--filter=blob:none")
         .arg("--no-checkout")
         .arg(url)
         .arg(&dir)
-        .status()?
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await?
         .success()
     {
+        // TODO: on error, print output
         return Err("git clone failed".into());
     }
+    // eprintln!("Completed command for {url}");
 
     Ok(dir)
 }
