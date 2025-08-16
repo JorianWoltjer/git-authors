@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+clap = { version = "4.5.40", features = ["derive"] }
+futures = "0.3.31"
 git2 = "0.20.2"
-octocrab = "0.44.1"
+octocrab = { version = "0.44.1", features = ["stream"] }
 regex = "1.11.1"
 tempfile = "3.20.0"
 tokio = { version = "1.47.1", features = ["full"] }
