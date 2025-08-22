@@ -3,54 +3,66 @@ use git2::Repository;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     collections::HashSet,
-    fs::{self, remove_dir_all},
+    fs::remove_dir_all,
     io::{self, IsTerminal, Read},
     sync::Arc,
+    time::Duration,
 };
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 
-use git_authors::{Err, RepoSource, cli::Args, clone_repo};
+use gitauthors::{Err, RepoSource, cli::Args, clone_repo};
 
 #[tokio::main]
 async fn main() -> Result<(), Err> {
-    let args = Args::parse();
-    let mut input = String::new();
-    if let Some(path) = args.file {
-        input = fs::read_to_string(path)?
-    } else {
+    let mut args = Args::parse();
+    if args.urls.is_empty() {
         let mut stdin = io::stdin();
         if stdin.is_terminal() {
-            // eprintln!(
-            //     "Paste your URL below and press Ctrl+D, pipe output from another command, or use `-f` to read URLs from a file."
-            // );
+            eprintln!(
+                "[!] Tip: Paste your URL(s) below and press Ctrl+D, or pipe output from another command."
+            );
         }
+        let mut input = String::new();
         stdin.read_to_string(&mut input)?;
-    }
+        args.urls.extend(
+            input
+                .lines()
+                .map(|line| line.trim().to_string())
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>(),
+        );
+    };
 
-    // TODO: indicatif progress during this, just a message
+    let prep_pb = ProgressBar::new_spinner()
+        .with_style(ProgressStyle::default_spinner().tick_chars("◜◠◝◞◡◟✓"));
+    prep_pb.enable_steady_tick(Duration::from_millis(100));
+
     // Turning input URLs into git repository URLs
     let mut git_urls = vec![];
-    for url in input
-        .lines()
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-    {
-        // eprintln!("Identifying type for {url}...");
+    for url in &args.urls {
+        prep_pb.set_message(format!("Identifying {url}..."));
         let repo_source = RepoSource::from_url(url).await?;
-        // eprintln!("Listing repositories in {repo_source}...");
+        prep_pb.set_message(format!("Listing repositories of {repo_source}..."));
         let new_urls = repo_source.list_repos().await?;
-        // eprintln!("Found {}", new_urls.len());
         git_urls.extend(new_urls);
     }
+    prep_pb.finish_with_message(format!(
+        "Found {} repositor{} from {} source{}",
+        git_urls.len(),
+        if git_urls.len() == 1 { "y" } else { "ies" },
+        args.urls.len(),
+        if args.urls.len() == 1 { "" } else { "s" }
+    ));
 
     let pb = ProgressBar::new(git_urls.len() as u64).with_style(
-        ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len} (ETA {eta})").unwrap(),
+        ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len} ({per_sec}, ETA {eta})")
+            .unwrap(),
     );
+    pb.set_message("Cloning all repositories...");
     let queue = Arc::new(RwLock::new(git_urls));
     let (tx, mut rx) = mpsc::unbounded_channel();
     // Thread pool for cloning
-    // eprintln!("Downloading all histories...");
     for _ in 0..args.threads {
         let queue = queue.clone();
         let tx = tx.clone();
@@ -59,11 +71,14 @@ async fn main() -> Result<(), Err> {
             loop {
                 let git_url = queue.write().await.pop();
                 if let Some(git_url) = git_url {
-                    // eprintln!("Worker {i} picked up {git_url}");
-                    let dir = clone_repo(&git_url).await.unwrap();
-                    let _ = tx.send(dir);
+                    // let dir = clone_repo(&git_url).await.unwrap();
+                    match clone_repo(&git_url).await {
+                        Ok(dir) => {
+                            let _ = tx.send(dir);
+                        }
+                        Err(e) => eprintln!("WARNING: {e}, skipping {git_url}\n"),
+                    }
                 } else {
-                    // eprintln!("Worker {i} exited");
                     break;
                 }
             }
@@ -76,7 +91,6 @@ async fn main() -> Result<(), Err> {
     let results = Arc::new(RwLock::new(HashSet::new()));
     while let Some(dir) = rx.recv().await {
         let repo = Repository::open(&dir).unwrap();
-        // eprintln!("Cloned into {dir:?}");
         let mut revwalk = repo.revwalk().unwrap();
 
         // Push all branches and tags to the revwalk
@@ -92,17 +106,14 @@ async fn main() -> Result<(), Err> {
             let commit = commit.unwrap();
             let commit = repo.find_commit(commit).unwrap();
             let author = commit.author();
-            // TODO: if invalid utf-8, hex escape it
-            let name = author.name().unwrap_or_default();
-            let email = author.email().unwrap_or_default();
-            // eprintln!("Commit: {} by {name} <{email}>", commit.id());
+            let name = String::from_utf8_lossy(author.name_bytes());
+            let email = String::from_utf8_lossy(author.email_bytes());
             results
                 .write()
                 .await
                 .insert((name.to_string(), email.to_string()));
         }
 
-        // eprintln!("{}", "-".repeat(80));
         remove_dir_all(dir).unwrap();
         let name = repo
             .find_remote("origin")
@@ -116,11 +127,10 @@ async fn main() -> Result<(), Err> {
         pb.set_message(name);
         pb.inc(1);
     }
-    pb.set_message("");
+    pb.finish_with_message("✓");
 
     // Print formatted results
     let mut results = results.read().await.clone().into_iter().collect::<Vec<_>>();
-    // results.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap());
     results.sort();
     for (name, email) in results {
         println!("{name} <{email}>");

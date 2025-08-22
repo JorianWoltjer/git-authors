@@ -1,8 +1,6 @@
-use std::path::PathBuf;
-
 use clap::Parser;
 
-// Git author scraper
+// Enumerate authors in Git logs of large sets of repositories for OSINT, to find names and emails
 #[derive(Parser)]
 #[command(name = "gitauthors")]
 pub struct Args {
@@ -10,7 +8,6 @@ pub struct Args {
     #[arg(short, long, default_value = "10")]
     pub threads: usize,
 
-    /// Path to a file URLs [default: stdin]
-    #[arg(short, long)]
-    pub file: Option<PathBuf>,
+    /// URLs of repositories, users or orgnizations
+    pub urls: Vec<String>,
 }

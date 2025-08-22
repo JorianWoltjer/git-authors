@@ -1,6 +1,6 @@
 use futures::TryStreamExt;
 use regex::Regex;
-use std::{fmt::Display, path::PathBuf, process::Stdio, sync::LazyLock};
+use std::{fmt::Display, path::PathBuf, sync::LazyLock};
 use tempfile::tempdir;
 use tokio::process::Command;
 
@@ -38,37 +38,26 @@ impl RepoSource {
             Self::GitRepo(url) => vec![url.to_string()],
             Self::GithubUser(user) => {
                 let octocrab = octocrab::instance();
-                let mut repos = vec![];
-                let mut page = 1;
-                // TODO: into_stream()
-                loop {
-                    let page_repos = octocrab
-                        .users(user)
-                        .repos()
-                        .per_page(100)
-                        .page(page)
-                        .send()
-                        .await?;
-                    let number_of_pages = page_repos.number_of_pages().unwrap_or(1);
-                    repos.extend(page_repos.items);
-                    page += 1;
-
-                    if page > number_of_pages {
-                        break;
-                    }
-                }
-                repos
-                    .into_iter()
-                    .filter_map(|repo| {
-                        (!repo.fork.unwrap()).then_some(repo.clone_url.unwrap().to_string())
+                octocrab
+                    .users(user)
+                    .repos()
+                    .per_page(100)
+                    .send()
+                    .await?
+                    // TODO: use .total_count() to make progress bar
+                    .into_stream(&octocrab)
+                    .try_filter_map(|repo| async move {
+                        Ok((!repo.fork.unwrap()).then_some(repo.clone_url.unwrap().to_string()))
                     })
-                    .collect()
+                    .try_collect()
+                    .await?
             }
             Self::GithubOrg(org) => {
                 let octocrab = octocrab::instance();
                 octocrab
                     .orgs(org)
                     .list_repos()
+                    .per_page(100)
                     .send()
                     .await?
                     .into_stream(&octocrab)
@@ -85,8 +74,8 @@ impl Display for RepoSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::GitRepo(url) => write!(f, "Git Repository at {url}"),
-            Self::GithubUser(user) => write!(f, "Github User {user:?}"),
-            Self::GithubOrg(org) => write!(f, "Github Organization {org:?}"),
+            Self::GithubUser(user) => write!(f, "GitHub User {user:?}"),
+            Self::GithubOrg(org) => write!(f, "GitHub Organization {org:?}"),
         }
     }
 }
@@ -94,23 +83,20 @@ impl Display for RepoSource {
 pub async fn clone_repo(url: &str) -> Result<PathBuf, Err> {
     let dir = tempdir()?.keep();
 
-    // eprintln!("Running command for {url}");
-    if !Command::new("git")
+    let result = Command::new("git")
         .arg("clone")
         .arg("--filter=blob:none")
         .arg("--no-checkout")
         .arg(url)
         .arg(&dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await?
-        .success()
-    {
-        // TODO: on error, print output
+        .output()
+        .await?;
+    if !result.status.success() {
+        let output =
+            String::from_utf8_lossy(&result.stdout) + String::from_utf8_lossy(&result.stderr);
+        eprint!("{output}");
         return Err("git clone failed".into());
     }
-    // eprintln!("Completed command for {url}");
 
     Ok(dir)
 }

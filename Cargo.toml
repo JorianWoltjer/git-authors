@@ -1,7 +1,15 @@
 [package]
-name = "git-authors"
+name = "gitauthors"
 version = "0.1.0"
 edition = "2024"
+authors = ["Jorian Woltjer (J0R1AN)"]
+license = "MIT OR Apache-2.0"
+description = "Collect git author names and emails quickly"
+readme = "README.md"
+homepage = "https://github.com/JorianWoltjer/git-authors"
+repository = "https://github.com/JorianWoltjer/git-authors"
+keywords = ["cli", "git", "security", "osint", "github"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.5.40", features = ["derive"] }
