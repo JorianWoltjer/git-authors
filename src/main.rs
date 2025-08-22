@@ -121,7 +121,7 @@ async fn main() -> Result<(), Err> {
             .url()
             .unwrap()
             .split('/')
-            .last()
+            .next_back()
             .unwrap()
             .to_string();
         pb.set_message(name);
