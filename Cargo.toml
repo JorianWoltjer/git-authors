@@ -1,6 +1,6 @@
 [package]
 name = "gitauthors"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["Jorian Woltjer (J0R1AN)"]
 license = "MIT OR Apache-2.0"
@@ -12,13 +12,13 @@ keywords = ["cli", "git", "security", "osint", "github"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-clap = { version = "4.5.40", features = ["derive"] }
+clap = { version = "4.5.45", features = ["derive"] }
 futures = "0.3.31"
 git2 = "0.20.2"
-indicatif = "0.17.11"
+indicatif = "0.18.0"
 octocrab = { version = "0.44.1", features = ["stream"] }
 regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_qs = "0.15.0"
-tempfile = "3.20.0"
+tempfile = "3.21.0"
 tokio = { version = "1.47.1", features = ["full"] }

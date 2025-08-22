@@ -57,7 +57,6 @@ impl RepoSource {
         Ok(match self {
             Self::GitRepo(url) => vec![url.to_string()],
             Self::GithubUser(_) | Self::GithubOrg(_) => {
-                // Check if user/org exists
                 let octocrab = octocrab::instance();
                 let pages = match self {
                     Self::GithubUser(user) => {

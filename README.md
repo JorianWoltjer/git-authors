@@ -31,7 +31,7 @@ The simplest usage is passing such a URL as an argument (multiple supported):
 gitauthors https://github.com/JorianWoltjer/git-authors
 ```
 
-If no arguments are provided, it listens on **stdin** for URLs. This lets you pipe output form other commands (`|`) or files (`<`) into it.
+If no arguments are provided, it listens on **stdin** for newline-separated URLs. This lets you pipe output form other commands (`|`) or files (`<`) into it.
 
 ```bash
 gitauthors < urls.txt

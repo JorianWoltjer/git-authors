@@ -1,17 +1,23 @@
 use clap::Parser;
 use git2::Repository;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use regex::Regex;
 use std::{
     collections::HashSet,
     fs::remove_dir_all,
     io::{self, IsTerminal, Read},
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::Duration,
 };
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 
 use gitauthors::{Err, RepoSource, cli::Args, clone_repo};
+
+static CO_AUTHORED_BY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^Co-authored-by:\s*(?P<name>.+?)\s*<(?P<email>[^>]+)>$")
+        .expect("Invalid regex")
+});
 
 #[tokio::main]
 async fn main() -> Result<(), Err> {
@@ -108,13 +114,25 @@ async fn main() -> Result<(), Err> {
         for commit in revwalk {
             let commit = commit.unwrap();
             let commit = repo.find_commit(commit).unwrap();
-            let author = commit.author();
-            let name = String::from_utf8_lossy(author.name_bytes());
-            let email = String::from_utf8_lossy(author.email_bytes());
-            results
-                .write()
-                .await
-                .insert((name.to_string(), email.to_string()));
+            for signature in [commit.author(), commit.committer()] {
+                let name = String::from_utf8_lossy(signature.name_bytes());
+                let email = String::from_utf8_lossy(signature.email_bytes());
+                results
+                    .write()
+                    .await
+                    .insert((name.to_string(), email.to_string()));
+            }
+            for co_author in
+                CO_AUTHORED_BY.captures_iter(&String::from_utf8_lossy(commit.message_bytes()))
+            {
+                if let (Some(name), Some(email)) = (co_author.name("name"), co_author.name("email"))
+                {
+                    results
+                        .write()
+                        .await
+                        .insert((name.as_str().to_string(), email.as_str().to_string()));
+                }
+            }
         }
 
         remove_dir_all(dir).unwrap();
