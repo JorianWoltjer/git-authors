@@ -1,5 +1,8 @@
 use futures::TryStreamExt;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use octocrab::Page;
 use regex::Regex;
+use serde::Deserialize;
 use std::{fmt::Display, path::PathBuf, sync::LazyLock};
 use tempfile::tempdir;
 use tokio::process::Command;
@@ -12,6 +15,23 @@ pub static GITHUB_USER_ORG_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https?://(?:www\.)?github\.com/(?:([^/?#]+)(?:[?#].*)?|orgs/([^/?#]+)(?:.*))$")
         .unwrap()
 });
+
+#[derive(Deserialize, Debug)]
+struct PageQuery {
+    pub page: usize,
+    pub per_page: usize,
+}
+
+fn total_count<T>(page: &Page<T>) -> usize {
+    // Need to calculate amount manually (https://github.com/XAMPPRocky/octocrab/issues/659)
+    match &page.last {
+        Some(uri) => {
+            let query: PageQuery = serde_qs::from_str(uri.query().unwrap()).unwrap();
+            query.per_page * query.page
+        }
+        None => page.items.len(),
+    }
+}
 
 pub enum RepoSource {
     GithubUser(String),
@@ -33,36 +53,41 @@ impl RepoSource {
         }
     }
 
-    pub async fn list_repos(&self) -> Result<Vec<String>, Err> {
+    pub async fn list_repos(&self, m: &MultiProgress) -> Result<Vec<String>, Err> {
         Ok(match self {
             Self::GitRepo(url) => vec![url.to_string()],
-            Self::GithubUser(user) => {
+            Self::GithubUser(_) | Self::GithubOrg(_) => {
+                // Check if user/org exists
                 let octocrab = octocrab::instance();
-                octocrab
-                    .users(user)
-                    .repos()
-                    .per_page(100)
-                    .send()
-                    .await?
-                    // TODO: use .total_count() to make progress bar
+                let pages = match self {
+                    Self::GithubUser(user) => {
+                        octocrab.users(user).repos().per_page(100).send().await?
+                    }
+                    Self::GithubOrg(org) => {
+                        octocrab.orgs(org).list_repos().per_page(100).send().await?
+                    }
+                    _ => unreachable!(),
+                };
+
+                let pb = m.add(
+                    ProgressBar::new(total_count(&pages) as u64).with_style(
+                        ProgressStyle::default_bar()
+                            .template("{bar:40} {pos}/{len} ({per_sec}, ETA {eta})")
+                            .unwrap(),
+                    ),
+                );
+                pb.set_message("");
+
+                pages
                     .into_stream(&octocrab)
-                    .try_filter_map(|repo| async move {
-                        Ok((!repo.fork.unwrap()).then_some(repo.clone_url.unwrap().to_string()))
-                    })
-                    .try_collect()
-                    .await?
-            }
-            Self::GithubOrg(org) => {
-                let octocrab = octocrab::instance();
-                octocrab
-                    .orgs(org)
-                    .list_repos()
-                    .per_page(100)
-                    .send()
-                    .await?
-                    .into_stream(&octocrab)
-                    .try_filter_map(|repo| async move {
-                        Ok((!repo.fork.unwrap()).then_some(repo.clone_url.unwrap().to_string()))
+                    .try_filter_map(|repo| {
+                        pb.inc(1);
+                        async move {
+                            Ok(
+                                (!repo.fork.unwrap())
+                                    .then_some(repo.clone_url.unwrap().to_string()),
+                            )
+                        }
                     })
                     .try_collect()
                     .await?

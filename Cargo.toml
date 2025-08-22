@@ -1,6 +1,6 @@
 [package]
 name = "gitauthors"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Jorian Woltjer (J0R1AN)"]
 license = "MIT OR Apache-2.0"
@@ -18,5 +18,7 @@ git2 = "0.20.2"
 indicatif = "0.17.11"
 octocrab = { version = "0.44.1", features = ["stream"] }
 regex = "1.11.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_qs = "0.15.0"
 tempfile = "3.20.0"
 tokio = { version = "1.47.1", features = ["full"] }

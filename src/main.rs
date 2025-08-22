@@ -1,6 +1,6 @@
 use clap::Parser;
 use git2::Repository;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::{
     collections::HashSet,
     fs::remove_dir_all,
@@ -34,8 +34,11 @@ async fn main() -> Result<(), Err> {
         );
     };
 
-    let prep_pb = ProgressBar::new_spinner()
-        .with_style(ProgressStyle::default_spinner().tick_chars("◜◠◝◞◡◟✓"));
+    let m = MultiProgress::new();
+    let prep_pb = m.add(
+        ProgressBar::new_spinner()
+            .with_style(ProgressStyle::default_spinner().tick_chars("◜◠◝◞◡◟✓")),
+    );
     prep_pb.enable_steady_tick(Duration::from_millis(100));
 
     // Turning input URLs into git repository URLs
@@ -44,7 +47,7 @@ async fn main() -> Result<(), Err> {
         prep_pb.set_message(format!("Identifying {url}..."));
         let repo_source = RepoSource::from_url(url).await?;
         prep_pb.set_message(format!("Listing repositories of {repo_source}..."));
-        let new_urls = repo_source.list_repos().await?;
+        let new_urls = repo_source.list_repos(&m).await?;
         git_urls.extend(new_urls);
     }
     prep_pb.finish_with_message(format!(
@@ -55,11 +58,11 @@ async fn main() -> Result<(), Err> {
         if args.urls.len() == 1 { "" } else { "s" }
     ));
 
-    let pb = ProgressBar::new(git_urls.len() as u64).with_style(
+    let clone_pb = ProgressBar::new(git_urls.len() as u64).with_style(
         ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len} ({per_sec}, ETA {eta})")
             .unwrap(),
     );
-    pb.set_message("Cloning all repositories...");
+    clone_pb.set_message("Cloning all repositories...");
     let queue = Arc::new(RwLock::new(git_urls));
     let (tx, mut rx) = mpsc::unbounded_channel();
     // Thread pool for cloning
@@ -124,10 +127,10 @@ async fn main() -> Result<(), Err> {
             .next_back()
             .unwrap()
             .to_string();
-        pb.set_message(name);
-        pb.inc(1);
+        clone_pb.set_message(name);
+        clone_pb.inc(1);
     }
-    pb.finish_with_message("✓");
+    clone_pb.finish_with_message("✓");
 
     // Print formatted results
     let mut results = results.read().await.clone().into_iter().collect::<Vec<_>>();
